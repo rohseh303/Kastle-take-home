@@ -9,18 +9,21 @@ class Tree(models.Model):
         return self.name
 
     def create_tag(self, name, description=None, version=None):
-        # Create a new tag for the tree
-        tag = Tag.objects.create(tree=self, name=name, description=description)
+        if version and hasattr(version, 'tag'):
+            raise ValueError("This version already has a tag associated with it.")
 
-        # If a specific version is provided, associate it with the tag
-        if version:
-            version.tag = tag
-            version.save()
+        # If no version is provided, create a new TreeVersion without a tag initially
+        if not version:
+            version = TreeVersion.objects.create(tree=self)
 
-        # If no version is provided, create a new TreeVersion and associate it with the tag
-        else:
-            version = TreeVersion.objects.create(tree=self, tag=tag)
-            self._snapshot_current_state(version)
+        # Create the tag and associate it with the tree
+        tag = Tag.objects.create(tree=self, name=name, description=description, version=version)
+
+        # Update the TreeVersion to link it back to the tag
+        version.tag = tag
+        version.save()
+
+        self._snapshot_current_state(version)
 
         return tag
 
@@ -48,9 +51,11 @@ class Tree(models.Model):
                 version=version,
                 data=node.data
             )
+
         # Snapshot all current edges
         for edge in TreeEdge.objects.filter(
-            models.Q(incoming_node__tree=self) | models.Q(outgoing_node__tree=self)
+            incoming_node__tree=self,
+            outgoing_node__tree=self
         ):
             TreeEdgeVersion.objects.create(
                 edge=edge,
@@ -116,6 +121,11 @@ class Tag(models.Model):
     tree = models.ForeignKey(Tree, on_delete=models.CASCADE, related_name='tags')
     name = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True, null=True)
+    version = models.OneToOneField(
+        'TreeVersion',
+        on_delete=models.CASCADE,
+        related_name='tag'
+    )
     created_at = models.DateTimeField(default=now)
 
     def __str__(self):
@@ -123,12 +133,17 @@ class Tag(models.Model):
 
 class TreeVersion(models.Model):
     tree = models.ForeignKey(Tree, on_delete=models.CASCADE, related_name='versions')
-    parent_version = models.ForeignKey('self', on_delete=models.SET_NULL, blank=True, null=True, related_name='child_versions')
-    tag = models.ForeignKey(Tag, on_delete=models.SET_NULL, blank=True, null=True, related_name='versions')
+    parent_version = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='child_versions'
+    )
     created_at = models.DateTimeField(default=now)
 
     def __str__(self):
-        if self.tag:
+        if hasattr(self, 'tag'):  # Check if a tag exists
             return f"Version {self.id} (Tag: {self.tag.name}) of Tree {self.tree.name}"
         return f"Version {self.id} of Tree {self.tree.name}"
     

@@ -39,12 +39,11 @@ class ConfigurationManagementTestCase(TestCase):
             data={"weight": 0.5}
         )
 
-        # Creating a new tag after modifications
-        modified_version.tag = self.tree.tags.create(
+        tag = self.tree.create_tag(
             name="release-v1.1",
-            description="Added new setting"
+            description="Added new setting",
+            version=modified_version
         )
-        modified_version.save()
 
 class FeatureBranchingTestCase(TestCase):
     def setUp(self):
@@ -125,106 +124,133 @@ class RollbackScenarioTestCase(TestCase):
                 rollback_version.get_node(new_node_version.node.id)
 
 
-# class TreeFetchingByTagTestCase(TestCase):
-#     def setUp(self):
-#         # Create a tree and tag it
-#         self.tree = Tree.objects.create(name="Historical Tree")
-#         self.node1 = TreeNode.objects.create(tree=self.tree, data={"value": 1})
-#         self.node2 = TreeNode.objects.create(tree=self.tree, data={"value": 2})
-#         self.node3 = TreeNode.objects.create(tree=self.tree, data={"value": 3})
-#         self.node4 = TreeNode.objects.create(tree=self.tree, data={"value": 4})
-#         self.node5 = TreeNode.objects.create(tree=self.tree, data={"value": 5})
+class TreeFetchingByTagTestCase(TestCase):
+    def setUp(self):
+        # Create a tree and nodes in the live tree
+        self.tree = Tree.objects.create(name="Historical Tree")
+        self.node1 = TreeNode.objects.create(tree=self.tree, data={"value": 1})
+        self.node2 = TreeNode.objects.create(tree=self.tree, data={"value": 2})
+        self.node3 = TreeNode.objects.create(tree=self.tree, data={"value": 3})
+        self.node4 = TreeNode.objects.create(tree=self.tree, data={"value": 4})
+        self.node5 = TreeNode.objects.create(tree=self.tree, data={"value": 5})
 
-#         self.version = TreeVersion.objects.create(tree=self.tree)
-#         self.version.add_existing_node(self.node1, data=self.node1.data)
-#         self.version.add_existing_node(self.node2, data=self.node2.data)
-#         self.version.add_existing_node(self.node3, data=self.node3.data)
-#         self.version.add_existing_node(self.node4, data=self.node4.data)
-#         self.version.add_existing_node(self.node5, data=self.node5.data)
+        # Tag the current state (nodes will be snapshotted)
+        self.tree.create_tag(name="release-v1.0", description="Release version 1.0")
 
-#         # Create edges
-#         self.version.add_edge(self.node1.id, self.node2.id, data={"relation": "child"})
-#         self.version.add_edge(self.node2.id, self.node3.id, data={"relation": "child"})
-#         self.version.add_edge(self.node2.id, self.node4.id, data={"relation": "child"})
-#         self.version.add_edge(self.node4.id, self.node5.id, data={"relation": "child"})
+        # Add edges to the current version
+        current_version = self.tree.versions.first()
+        self.edge1 = current_version.add_edge(
+            incoming_node_id=self.node1.id,
+            outgoing_node_id=self.node2.id,
+            data={"relation": "child"}
+        )
+        self.edge2 = current_version.add_edge(
+            incoming_node_id=self.node2.id,
+            outgoing_node_id=self.node3.id,
+            data={"relation": "child"}
+        )
+        self.edge3 = current_version.add_edge(
+            incoming_node_id=self.node2.id,
+            outgoing_node_id=self.node4.id,
+            data={"relation": "child"}
+        )
+        self.edge4 = current_version.add_edge(
+            incoming_node_id=self.node4.id,
+            outgoing_node_id=self.node5.id,
+            data={"relation": "child"}
+        )
 
-#         # Tag the version
-#         self.tree.create_tag(name="release-v1.0", description="Release version 1.0", version=self.version)
+    def test_tree_fetching_by_tag(self):
+        # Get the tree version by tag
+        historical_version = self.tree.get_by_tag("release-v1.0")
+        self.assertEqual(historical_version.tag.name, "release-v1.0")
 
-#     def test_tree_fetching_by_tag(self):
-#         # Get a tree by its tag
-#         historical_version = self.tree.get_by_tag("release-v1.0")
-#         self.assertEqual(historical_version.tag.name, "release-v1.0")
+        # Get the root node(s)
+        root_nodes = historical_version.get_root_nodes()
+        self.assertEqual(len(root_nodes), 1)
+        root_node = root_nodes[0]
+        self.assertEqual(root_node.node.id, self.node1.id)
 
-#         # Get the root node(s)
-#         root_nodes = historical_version.get_root_nodes()
-#         self.assertEqual(len(root_nodes), 1)
-#         root_node = root_nodes[0]
-#         self.assertEqual(root_node.node.id, self.node1.id)
+        # Traverse from a specific node
+        node = historical_version.get_node(node_id=self.node1.id)
+        self.assertIsNotNone(node)
+        self.assertEqual(node.node.id, self.node1.id)
 
-#         # Traverse from a specific node
-#         node = historical_version.get_node(node_id=self.node1.id)
-#         self.assertIsNotNone(node)
-#         self.assertEqual(node.node.id, self.node1.id)
+        children = historical_version.get_child_nodes(node_id=self.node1.id)
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0].node.id, self.node2.id)
 
-#         children = historical_version.get_child_nodes(node_id=self.node1.id)
-#         self.assertEqual(len(children), 1)
-#         self.assertEqual(children[0].node.id, self.node2.id)
+        parents = historical_version.get_parent_nodes(node_id=self.node3.id)
+        self.assertEqual(len(parents), 1)
+        self.assertEqual(parents[0].node.id, self.node2.id)
 
-#         parents = historical_version.get_parent_nodes(node_id=self.node3.id)
-#         self.assertEqual(len(parents), 1)
-#         self.assertEqual(parents[0].node.id, self.node2.id)
+        # Get edge information
+        edges = historical_version.get_node_edges(node_id=self.node2.id)
+        self.assertEqual(len(edges), 3)  # 1 incoming, 2 outgoing
 
-#         # Get edge information
-#         edges = historical_version.get_node_edges(node_id=self.node2.id)
-#         self.assertEqual(len(edges), 3)  # 1 incoming, 2 outgoing
+        # for edge_version in edges:
+        #     edge = edge_version.edge
+        #     connected_node_id = (
+        #         edge.outgoing_node.id if edge.incoming_node.id == self.node2.id else edge.incoming_node.id
+        #     )
+        #     print(f"Edge {edge_version.id} metadata: {edge_version.data}")
+        #     print(f"Connected to node: {connected_node_id}")
 
-#         for edge_version in edges:
-#             edge = edge_version.edge
-#             connected_node_id = (
-#                 edge.outgoing_node.id if edge.incoming_node.id == self.node2.id else edge.incoming_node.id
-#             )
-#             print(f"Edge {edge_version.id} metadata: {edge_version.data}")
-#             print(f"Connected to node: {connected_node_id}")
+        for edge_version in edges:
+            edge = edge_version.edge
 
-#         # Traverse entire tree structure
-#         def traverse_tree(version, node_id, visited=None):
-#             if visited is None:
-#                 visited = set()
-#             if node_id in visited:
-#                 return
-#             visited.add(node_id)
-#             node_version = version.get_node(node_id)
-#             print(f"Node {node_id} metadata: {node_version.data}")
-#             edges = version.get_node_edges(node_id)
-#             for edge_version in edges:
-#                 edge = edge_version.edge
-#                 if edge.incoming_node.id == node_id:
-#                     next_node_id = edge.outgoing_node.id
-#                     if next_node_id not in visited:
-#                         print(f"Edge metadata: {edge_version.data}")
-#                         traverse_tree(version, next_node_id, visited)
+            # Determine the connected node and the relationship direction
+            if edge.incoming_node.id == self.node2.id:
+                connected_node_id = edge.outgoing_node.id
+                relationship = "child (outgoing)"
+            else:
+                connected_node_id = edge.incoming_node.id
+                relationship = "parent (incoming)"
 
-#         # Start traversal from root
-#         for root in historical_version.get_root_nodes():
-#             traverse_tree(historical_version, root.node.id)
+            # Print edge metadata and the connected node with its relationship
+            print(f"Edge {edge_version.id} metadata: {edge_version.data}")
+            print(f"Connected to node: {connected_node_id} as {relationship}")
 
-#         # Get all nodes at a specific depth
-#         level_2_nodes = historical_version.get_nodes_at_depth(2)
-#         level_2_node_ids = [nv.node.id for nv in level_2_nodes]
-#         self.assertIn(self.node3.id, level_2_node_ids)
-#         self.assertIn(self.node4.id, level_2_node_ids)
+        # Traverse entire tree structure
+        print("\n\nTraversing the tree:")
+        def traverse_tree(version, node_id, visited=None):
+            if visited is None:
+                visited = set()
+            if node_id in visited:
+                return
+            visited.add(node_id)
+            node_version = version.get_node(node_id)
+            print(f"Node {node_id} metadata: {node_version.data}")
+            edges = version.get_node_edges(node_id)
+            for edge_version in edges:
+                edge = edge_version.edge
+                if edge.incoming_node.id == node_id:
+                    next_node_id = edge.outgoing_node.id
+                    if next_node_id not in visited:
+                        print(f"Edge metadata: {edge_version.data}")
+                        traverse_tree(version, next_node_id, visited)
 
-#         # Find path between nodes
-#         path = historical_version.find_path(start_node_id=self.node1.id, end_node_id=self.node5.id)
-#         self.assertIsNotNone(path)
-#         expected_path = [self.node1.id, self.node2.id, self.node4.id, self.node5.id]
-#         actual_path = [node_id for node_id, _ in path]
-#         self.assertEqual(actual_path, expected_path)
+        # Start traversal from root
+        for root in historical_version.get_root_nodes():
+            traverse_tree(historical_version, root.node.id)
 
-#         for node_id, edge_version in path:
-#             node_version = historical_version.get_node(node_id)
-#             print(f"Node: {node_version.data}")
-#             if edge_version:
-#                 print(f"Connected by edge: {edge_version.data if edge_version else 'None'}")
+        # Get all nodes at a specific depth
+        level_2_nodes = historical_version.get_nodes_at_depth(2)
+        level_2_node_ids = [nv.node.id for nv in level_2_nodes]
+        print(f"\n\nNodes at depth 2: {level_2_node_ids}")
+        self.assertIn(self.node3.id, level_2_node_ids)
+        self.assertIn(self.node4.id, level_2_node_ids)
 
+        # Find path between nodes
+        path = historical_version.find_path(start_node_id=self.node1.id, end_node_id=self.node5.id)
+        self.assertIsNotNone(path)
+        expected_path = [self.node1.id, self.node2.id, self.node4.id, self.node5.id]
+        print(f"\n\nExpected path: {expected_path} between {self.node1.id} and {self.node5.id}")
+        actual_path = [node_id for node_id, _ in path]
+        self.assertEqual(actual_path, expected_path)
+
+        for node_id, edge_version in path:
+            node_version = historical_version.get_node(node_id)
+            print(f"Node: {node_version.data}")
+            if edge_version:
+                print(f"Connected by edge: {edge_version.data if edge_version else 'None'}")
