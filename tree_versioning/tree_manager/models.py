@@ -11,12 +11,18 @@ class Tree(models.Model):
     def create_tag(self, name, description=None):
         # Create a new tag for the tree
         tag = Tag.objects.create(tree=self, name=name, description=description)
-        # Create a new version associated with this tag
+
+        # Create a new TreeVersion associated with this tag
         version = TreeVersion.objects.create(tree=self, tag=tag)
-        # Optionally, copy data from the latest version
-        latest_version = self.versions.order_by('-created_at').first()
+
+        # Copy data from the latest version if it exists
+        latest_version = self.versions.exclude(id=version.id).order_by('-created_at').first()
         if latest_version:
             self._duplicate_version_data(latest_version, version)
+        else:
+            # If no previous version, copy current nodes and edges
+            self._snapshot_current_state(version)
+
         return tag
 
     def _duplicate_version_data(self, source_version, target_version):
@@ -33,6 +39,24 @@ class Tree(models.Model):
                 edge=edge_version.edge,
                 version=target_version,
                 data=edge_version.data
+            )
+
+    def _snapshot_current_state(self, version):
+        # Snapshot all current nodes
+        for node in self.nodes.all():
+            TreeNodeVersion.objects.create(
+                node=node,
+                version=version,
+                data=node.data
+            )
+        # Snapshot all current edges
+        for edge in TreeEdge.objects.filter(
+            models.Q(incoming_node__tree=self) | models.Q(outgoing_node__tree=self)
+        ):
+            TreeEdgeVersion.objects.create(
+                edge=edge,
+                version=version,
+                data=edge.data
             )
 
     def create_new_tree_version_from_tag(self, tag_name):
