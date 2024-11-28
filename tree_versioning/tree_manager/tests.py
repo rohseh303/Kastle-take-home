@@ -254,3 +254,67 @@ class TreeFetchingByTagTestCase(TestCase):
             print(f"Node: {node_version.data}")
             if edge_version:
                 print(f"Connected by edge: {edge_version.data if edge_version else 'None'}")
+
+class NodeAndEdgeMetadataVersioningTestCase(TestCase):
+    def setUp(self):
+        # Create a tree and initial nodes
+        self.tree = Tree.objects.create(name="Metadata Test Tree")
+        self.node1 = TreeNode.objects.create(tree=self.tree, data={"name": "Node1", "value": 1})
+        self.node2 = TreeNode.objects.create(tree=self.tree, data={"name": "Node2", "value": 2})
+
+        # Add an edge between nodes
+        self.edge = TreeEdge.objects.create(
+            incoming_node=self.node1,
+            outgoing_node=self.node2,
+            data={"relation": "child"}
+        )
+
+        # Tag the current state
+        self.tree.create_tag(name="initial", description="Initial version snapshot")
+
+    def test_metadata_versioning_with_rollback(self):
+        # Retrieve the initial version
+        initial_version = self.tree.get_by_tag("initial")
+        initial_node1 = initial_version.get_node(self.node1.id)
+        initial_node2 = initial_version.get_node(self.node2.id)
+        initial_edge = initial_version.get_node_edges(self.node1.id)[0]
+
+        # Validate metadata in the initial version
+        self.assertEqual(initial_node1.data, {"name": "Node1", "value": 1})
+        self.assertEqual(initial_node2.data, {"name": "Node2", "value": 2})
+        self.assertEqual(initial_edge.data, {"relation": "child"})
+
+        # Modify the live tree (simulate new changes)
+        self.node1.data = {"name": "Node1", "value": 42}  # Change metadata
+        self.node1.save()
+        self.edge.data = {"relation": "updated-child"}  # Change edge metadata
+        self.edge.save()
+
+        # Validate the version still reflects the original metadata
+        self.assertEqual(initial_node1.data, {"name": "Node1", "value": 1})  # Should not change
+        self.assertEqual(initial_edge.data, {"relation": "child"})  # Should not change
+
+        # Create a new version
+        self.tree.create_tag(name="updated", description="Updated tree snapshot")
+        updated_version = self.tree.get_by_tag("updated")
+        updated_node1 = updated_version.get_node(self.node1.id)
+        updated_edge = updated_version.get_node_edges(self.node1.id)[0]
+
+        # Validate that the updated version reflects the new metadata
+        self.assertEqual(updated_node1.data, {"name": "Node1", "value": 42})
+        self.assertEqual(updated_edge.data, {"relation": "updated-child"})
+
+        # Rollback to the initial version
+        rolled_back_version = self.tree.restore_from_tag("initial")
+        rolled_back_node1 = rolled_back_version.get_node(self.node1.id)
+        rolled_back_node2 = rolled_back_version.get_node(self.node2.id)
+        rolled_back_edge = rolled_back_version.get_node_edges(self.node1.id)[0]
+
+        # Validate the tree structure and metadata after rollback
+        self.assertEqual(rolled_back_node1.data, {"name": "Node1", "value": 1})
+        self.assertEqual(rolled_back_node2.data, {"name": "Node2", "value": 2})
+        self.assertEqual(rolled_back_edge.data, {"relation": "child"})
+
+        # Ensure changes made in the updated version do not exist in the rolled-back version
+        with self.assertRaises(ValueError):
+            rolled_back_version.get_node(self.node2.id + 1)  # Assuming no additional nodes exist
