@@ -47,42 +47,45 @@ class ConfigurationManagementTestCase(TestCase):
         )
         modified_version.save()
 
-# class FeatureBranchingTestCase(TestCase):
-#     def setUp(self):
-#         # Create a tree and tag main version
-#         self.tree = Tree.objects.create(name="Main Tree")
-#         self.node_main = TreeNode.objects.create(tree=self.tree, data={"main": True})
-#         self.main_version = TreeVersion.objects.create(tree=self.tree)
-#         self.main_version.add_existing_node(self.node_main, data=self.node_main.data)
-#         self.tree.create_tag(name="main-v2.0", description="Main version 2.0", version=self.main_version)
+class FeatureBranchingTestCase(TestCase):
+    def setUp(self):
+        # Create a tree and tag main version
+        self.tree = Tree.objects.create(name="Main Tree")
+        self.node_main = TreeNode.objects.create(tree=self.tree, data={"main": True})
 
-#     def test_feature_branching(self):
-#         # Creating a feature branch
-#         feature_branch_version = self.tree.create_new_tree_version_from_tag("main-v2.0")
-#         self.assertIsNotNone(feature_branch_version)
+        # Creating and tagging the main version
+        self.tree.create_tag(name="main-v2.0", description="Main version 2.0")
 
-#         # Making feature-specific changes
-#         node1_version = feature_branch_version.add_node(data={"feature_flag": True})
-#         node2_version = feature_branch_version.add_node(data={"config": "new_setting"})
-#         self.assertIsNotNone(node1_version)
-#         self.assertIsNotNone(node2_version)
+    def test_feature_branching(self):
+        # Creating a feature branch from the main version
+        feature_branch = self.tree.create_new_tree_version_from_tag("main-v2.0")
+        self.assertIsNotNone(feature_branch)
 
-#         # Adding an edge between the new nodes
-#         edge_version = feature_branch_version.add_edge(
-#             incoming_node_id=node1_version.node.id,
-#             outgoing_node_id=node2_version.node.id,
-#             data={"relation": "depends_on"}
-#         )
-#         self.assertIsNotNone(edge_version)
-#         self.assertEqual(edge_version.data, {"relation": "depends_on"})
+        # Making feature-specific changes
+        node1 = feature_branch.add_node(data={"feature_flag": True})
+        node2 = feature_branch.add_node(data={"config": "new_setting"})
+        self.assertIsNotNone(node1)
+        self.assertIsNotNone(node2)
 
-#         # Tagging the feature branch
-#         feature_branch_version.tag = self.tree.tags.create(
-#             name="feature-x-v1",
-#             description="Feature X implementation"
-#         )
-#         feature_branch_version.save()
-#         self.assertEqual(feature_branch_version.tag.name, "feature-x-v1")
+        # Adding an edge between the new nodes
+        edge_version = feature_branch.add_edge(
+            incoming_node_id=node1.node.id,
+            outgoing_node_id=node2.node.id,
+            data={"relation": "depends_on"}
+        )
+        self.assertIsNotNone(edge_version)
+        self.assertEqual(edge_version.data, {"relation": "depends_on"})
+
+        # Tagging the feature branch
+        feature_branch_tag = self.tree.create_tag(
+            name="feature-x-v1",
+            description="Feature X implementation",
+            version=feature_branch
+        )
+        self.assertEqual(feature_branch_tag.name, "feature-x-v1")
+
+        # Verify that the tag is associated with the feature branch version
+        self.assertEqual(feature_branch.tag.name, "feature-x-v1")
 
 # class RollbackScenarioTestCase(TestCase):
 #     def setUp(self):

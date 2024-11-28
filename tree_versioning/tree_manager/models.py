@@ -7,20 +7,19 @@ class Tree(models.Model):
 
     def __str__(self):
         return self.name
-    
-    def create_tag(self, name, description=None):
+
+    def create_tag(self, name, description=None, version=None):
         # Create a new tag for the tree
         tag = Tag.objects.create(tree=self, name=name, description=description)
 
-        # Create a new TreeVersion associated with this tag
-        version = TreeVersion.objects.create(tree=self, tag=tag)
+        # If a specific version is provided, associate it with the tag
+        if version:
+            version.tag = tag
+            version.save()
 
-        # Copy data from the latest version if it exists
-        latest_version = self.versions.exclude(id=version.id).order_by('-created_at').first()
-        if latest_version:
-            self._duplicate_version_data(latest_version, version)
+        # If no version is provided, create a new TreeVersion and associate it with the tag
         else:
-            # If no previous version, copy current nodes and edges
+            version = TreeVersion.objects.create(tree=self, tag=tag)
             self._snapshot_current_state(version)
 
         return tag
