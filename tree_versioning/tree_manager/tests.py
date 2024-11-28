@@ -3,7 +3,6 @@ from tree_manager.models import (
     Tree,
     TreeNode,
     TreeEdge,
-    Tag,
     TreeVersion,
     TreeNodeVersion,
     TreeEdgeVersion,
@@ -87,38 +86,44 @@ class FeatureBranchingTestCase(TestCase):
         # Verify that the tag is associated with the feature branch version
         self.assertEqual(feature_branch.tag.name, "feature-x-v1")
 
-# class RollbackScenarioTestCase(TestCase):
-#     def setUp(self):
-#         # Create a tree and tag a stable version
-#         self.tree = Tree.objects.create(name="Stable Tree")
-#         self.node_stable = TreeNode.objects.create(tree=self.tree, data={"stable": True})
-#         self.stable_version = TreeVersion.objects.create(tree=self.tree)
-#         self.stable_version.add_existing_node(self.node_stable, data=self.node_stable.data)
-#         self.tree.create_tag(name="stable-v1", description="Stable version", version=self.stable_version)
+class RollbackScenarioTestCase(TestCase):
+    def setUp(self):
+        # Create a tree and tag a stable version
+        self.tree = Tree.objects.create(name="Stable Tree")
+        self.node_stable = TreeNode.objects.create(tree=self.tree, data={"stable": True})
 
-#     def test_rollback_scenario(self):
-#         # Making potentially risky changes
-#         modified_version = self.tree.create_new_tree_version_from_tag("stable-v1")
-#         new_node_version = modified_version.add_node(data={"experimental": True})
-#         self.assertIsNotNone(new_node_version)
+        # Tag the stable version (TreeVersion is created automatically)
+        self.tree.create_tag(name="stable-v1", description="Stable version")
 
-#         edge_version = modified_version.add_edge(
-#             incoming_node_id=self.node_stable.id,
-#             outgoing_node_id=new_node_version.node.id,
-#             data={"type": "experimental"}
-#         )
-#         self.assertIsNotNone(edge_version)
+    def test_rollback_scenario(self):
+        # Making potentially risky changes in a new version
+        modified_version = self.tree.create_new_tree_version_from_tag("stable-v1")
+        self.assertIsNotNone(modified_version)
 
-#         # Simulate problem detection
-#         problems_detected = True  # Replace with actual condition in real scenarios
+        # Add a new experimental node to the modified version
+        new_node_version = modified_version.add_node(data={"experimental": True})
+        self.assertIsNotNone(new_node_version)
 
-#         if problems_detected:
-#             # Rolling back if issues are found
-#             rollback_version = modified_version.restore_from_tag("stable-v1")
-#             self.assertEqual(rollback_version.tag.name, "stable-v1")
-#             # Ensure the experimental node is not present in the rollback version
-#             with self.assertRaises(TreeNodeVersion.DoesNotExist):
-#                 rollback_version.get_node(new_node_version.node.id)
+        # Add an edge connecting the stable node to the experimental node
+        edge_version = modified_version.add_edge(
+            incoming_node_id=self.node_stable.id,
+            outgoing_node_id=new_node_version.node.id,
+            data={"type": "experimental"}
+        )
+        self.assertIsNotNone(edge_version)
+
+        # Simulate problem detection
+        problems_detected = True
+
+        if problems_detected:
+            # Instead of modifying the live tree, use the base_version
+            rollback_version = self.tree.get_by_tag("stable-v1")
+            self.assertIsNotNone(rollback_version)
+
+            # Verify that the experimental node is not present in the rollback version
+            with self.assertRaises(ValueError):
+                rollback_version.get_node(new_node_version.node.id)
+
 
 # class TreeFetchingByTagTestCase(TestCase):
 #     def setUp(self):

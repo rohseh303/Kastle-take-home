@@ -71,6 +71,18 @@ class Tree(models.Model):
         self._duplicate_version_data(base_version, new_version)
         return new_version
     
+    def restore_from_tag(self, tag_name):
+        # Retrieve the tagged version
+        try:
+            tag = self.tags.get(name=tag_name)
+            base_version = self.versions.get(tag=tag)
+        except Tag.DoesNotExist:
+            raise ValueError(f"Tag '{tag_name}' does not exist.")
+        except TreeVersion.DoesNotExist:
+            raise ValueError(f"No version associated with tag '{tag_name}'.")
+
+        return base_version
+
     @classmethod
     def get_by_tag(cls, tag_name):
         try:
@@ -171,23 +183,7 @@ class TreeVersion(models.Model):
             data=data
         )
         return edge_version
-    
-    def restore_from_tag(self, tag_name):
-        # Retrieve the tagged version
-        try:
-            tag = self.tree.tags.get(name=tag_name)
-            target_version = self.tree.versions.get(tag=tag)
-        except Tag.DoesNotExist:
-            raise ValueError(f"Tag '{tag_name}' does not exist.")
-        # Create a new version based on the target version
-        restored_version = TreeVersion.objects.create(
-            tree=self.tree,
-            parent_version=target_version
-        )
-        # Duplicate data from target_version to restored_version
-        self.tree._duplicate_version_data(target_version, restored_version)
-        return restored_version
-    
+
     def get_root_nodes(self):
         # Root nodes are those with no incoming edges in this version
         node_ids_with_incoming_edges = self.edge_versions.values_list('edge__outgoing_node_id', flat=True)
